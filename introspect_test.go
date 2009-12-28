@@ -1,9 +1,8 @@
-
 package dbus
 
 import (
-	"testing";
-	)
+	"testing"
+)
 
 var introStr = `
         <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
@@ -31,29 +30,49 @@ var introStr = `
           <node name="child_of_sample_object"/>
           <node name="another_child_of_sample_object"/>
        </node>
-`;
+`
 
-func TestIntrospect(t *testing.T){
-	intro,e := NewIntrospect(introStr);
-	if e != nil { t.Error("Failed #1-1");}
-	if intro == nil { t.Error("Failed #1-2");}
-	
-	intf := intro.GetInterfaceData("org.freedesktop.SampleInterface");
-	if intf == nil  { t.Error("Failed #2-1");}
-	if intf.GetName() != "org.freedesktop.SampleInterface" { t.Error("Failed #2-2");}
+func TestIntrospect(t *testing.T) {
+	intro, e := NewIntrospect(introStr)
+	if e != nil {
+		t.Error("Failed #1-1")
+	}
+	if intro == nil {
+		t.Error("Failed #1-2")
+	}
 
-	meth := intf.GetMethodData("Frobate");
-	if meth == nil { t.Error("Failed #3-1");}
-	if meth != nil && "sa{us}" != meth.GetOutSignature() { t.Error("Failed #3-2");}
+	intf := intro.GetInterfaceData("org.freedesktop.SampleInterface")
+	if intf == nil {
+		t.Error("Failed #2-1")
+	}
+	if intf.GetName() != "org.freedesktop.SampleInterface" {
+		t.Error("Failed #2-2")
+	}
 
-	nilmeth := intf.GetMethodData("Hoo"); // unknown method name
-	if nilmeth != nil { t.Error("Failed #3-3");}
+	meth := intf.GetMethodData("Frobate")
+	if meth == nil {
+		t.Error("Failed #3-1")
+	}
+	if meth != nil && "sa{us}" != meth.GetOutSignature() {
+		t.Error("Failed #3-2")
+	}
 
-	signal := intf.GetSignalData("Changed");
-	if signal == nil { t.Error("Failed #4-1");}
-	if signal != nil && "b" != signal.GetSignature() {t.Error("Failed #4-2");}
+	nilmeth := intf.GetMethodData("Hoo") // unknown method name
+	if nilmeth != nil {
+		t.Error("Failed #3-3")
+	}
 
-	nilsignal := intf.GetSignalData("Hoo"); // unknown signal name
-	if nilsignal != nil { t.Error("Failed #4-3");}
+	signal := intf.GetSignalData("Changed")
+	if signal == nil {
+		t.Error("Failed #4-1")
+	}
+	if signal != nil && "b" != signal.GetSignature() {
+		t.Error("Failed #4-2")
+	}
+
+	nilsignal := intf.GetSignalData("Hoo") // unknown signal name
+	if nilsignal != nil {
+		t.Error("Failed #4-3")
+	}
 
 }
