@@ -6,6 +6,7 @@ include $(GOROOT)/src/Make.$(GOARCH)
 
 TARG=dbus
 GOFILES=\
+	auth.go\
 	marshall.go\
 	message.go\
 	introspect.go\

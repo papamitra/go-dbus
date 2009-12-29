@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"os"
 	"fmt"
-	"strings"
+//	"strings"
 	"bytes"
 	"reflect"
 )
@@ -76,22 +76,10 @@ func (p *Connection) Initialize() os.Error {
 }
 
 func (p *Connection) _Auth() os.Error {
-	p.conn.Write(strings.Bytes("\x00"))
-	p.conn.Write(strings.Bytes("AUTH EXTERNAL " + fmt.Sprintf("%x", fmt.Sprintf("%d", os.Getuid())) + "\r\n"))
+	auth := new(authState)
+	auth.AddAuthenticator(new(AuthExternal))
 
-	b := make([]byte, 1000)
-	p.conn.Read(b)
-	retstr := string(b)
-	re, _ := regexp.Compile("^OK ([0-9a-fA-F]+)")
-	m := re.ExecuteString(retstr)
-	if nil != m {
-		guid := retstr[m[2]:m[3]]
-		p.guid = guid
-		p.conn.Write(strings.Bytes("BEGIN\r\n"))
-		return nil
-	}
-
-	return os.NewError("Auth Failed")
+	return auth.Authenticate(p.conn)
 }
 
 func (p *Connection) _MessageReceiver(msgChan chan *Message) {
