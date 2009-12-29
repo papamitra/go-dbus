@@ -20,41 +20,58 @@ type Connection struct {
 }
 
 type Object struct {
-	bus   *Connection
 	dest  string
 	path  string
 	intro Introspect
 }
 
 type Interface struct {
-	bus   *Connection
 	obj   *Object
 	name  string
 	intro InterfaceData
 }
 
+func NewSessionBus() (*Connection, os.Error){
+	bus := new(Connection)
+	bus.path = os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+
+	var re *regexp.Regexp
+	re, _ = regexp.Compile("^unix:abstract=(.*),guid=(.*)")
+
+	m := re.ExecuteString(bus.path)
+	if nil != m {
+		abPath := bus.path[m[2]:m[3]] // get regexp 1st group
+		addr, _ := net.ResolveUnixAddr("unix", "\x00"+abPath)
+		conn, err := net.DialUnix("unix", nil, addr)
+		if err != nil{
+			return nil, err
+		}
+		bus.conn = conn
+		return bus,nil
+	}
+
+	return nil, os.NewError("NewSessionBus Failed")
+}
+
+func NewSystemBus() (*Connection, os.Error){
+	bus := new(Connection)
+	bus.path = "unix:path=/var/run/dbus/system_bus_socket"
+
+	addr, _ := net.ResolveUnixAddr("unix", "/var/run/dbus/system_bus_socket")
+	conn, err := net.DialUnix("unix", nil, addr)
+	if err != nil{
+		return nil, err
+	}
+	bus.conn = conn
+	return bus,nil
+}
+
 func (p *Connection) Initialize() os.Error {
 	p.methodCallReplies = make(map[uint32]func(*Message))
 	p.buffer = bytes.NewBuffer([]byte{})
-	p._CreateSocket()
 	p._Auth()
 	go p._RunLoop()
 	p._SendHello()
-	return nil
-}
-
-func (p *Connection) _CreateSocket() os.Error {
-	var re *regexp.Regexp
-	re, _ = regexp.Compile("^unix:abstract=(.*),guid=(.*)")
-	m := re.ExecuteString(p.path)
-	if nil != m {
-		abPath := p.path[m[2]:m[3]] // get regexp 1st group
-		addr, _ := net.ResolveUnixAddr("unix", "\x00"+abPath)
-		conn, _ := net.DialUnix("unix", nil, addr)
-		p.conn = conn
-		return nil
-	}
-
 	return nil
 }
 
@@ -100,7 +117,6 @@ func (p *Connection) _RunLoop() {
 }
 
 func (p *Connection) _MessageDispatch(msg *Message) {
-	fmt.Printf("%#v\n", msg)
 	if msg == nil {
 		return
 	}
@@ -144,16 +160,12 @@ func (p *Connection) _SendSync(msg *Message, callback func(*Message)) os.Error {
 	}
 
 	buff, _ := msg._Marshal()
-	fmt.Printf("%q\n", buff)
 	p.conn.Write(buff)
-	fmt.Println("sync start", len(buff))
 	<-recvChan // synchronize
-	fmt.Println("sync end")
 	return nil
 }
 
 func (p *Connection) _SendHello() os.Error {
-	fmt.Println("send hello start")
 	msg := NewMessage()
 	msg.Type = METHOD_CALL
 	msg.Path = "/org/freedesktop/DBus"
@@ -164,7 +176,7 @@ func (p *Connection) _SendHello() os.Error {
 	return nil
 }
 
-func (p *Connection) GetObject(dest string, path string) *Object {
+func (p *Connection) _GetIntrospect(dest string, path string) Introspect {
 	msg := NewMessage()
 	msg.Type = METHOD_CALL
 	msg.Path = path
@@ -172,20 +184,17 @@ func (p *Connection) GetObject(dest string, path string) *Object {
 	msg.Intf = "org.freedesktop.DBus.Introspectable"
 	msg.Member = "Introspect"
 
-	obj := new(Object)
-	obj.bus = p
-	obj.path = path
-	obj.dest = dest
+	var intro Introspect
 
 	p._SendSync(msg, func(reply *Message) {
 		if v, ok := reply.Params.At(0).(string); ok {
-			if intro, err := NewIntrospect(v); err == nil {
-				obj.intro = intro
+			if i, err := NewIntrospect(v); err == nil {
+				intro = i
 			}
 		}
 	})
 
-	return obj
+	return intro
 }
 
 func (p *Connection) Interface(obj *Object, name string) *Interface {
@@ -195,7 +204,6 @@ func (p *Connection) Interface(obj *Object, name string) *Interface {
 	}
 
 	intf := new(Interface)
-	intf.bus = p
 	intf.obj = obj
 	intf.name = name
 
@@ -209,9 +217,9 @@ func (p *Connection) Interface(obj *Object, name string) *Interface {
 	return intf
 }
 
-func (p *Interface) CallMethod(name string, args ...) os.Error {
+func (p *Connection) CallMethod(intf Interface, name string, args ...) os.Error {
 
-	method := p.intro.GetMethodData(name)
+	method := intf.intro.GetMethodData(name)
 	if nil == method {
 		return os.NewError("Invalid Method")
 	}
@@ -227,13 +235,23 @@ func (p *Interface) CallMethod(name string, args ...) os.Error {
 	}
 
 	msg.Type = METHOD_CALL
-	msg.Path = p.obj.path
-	msg.Intf = p.name
-	msg.Dest = p.obj.dest
+	msg.Path = intf.obj.path
+	msg.Intf = intf.name
+	msg.Dest = intf.obj.dest
 	msg.Member = name
 	msg.Sig = method.GetInSignature()
 
-	p.bus._SendSync(msg, func(reply *Message) { fmt.Println("Method Call Comp:", name) })
+	p._SendSync(msg, func(reply *Message) { fmt.Println("Method Call Comp:", name) })
 
 	return nil
+}
+
+func(p *Connection) GetObject(dest string, path string) *Object{
+
+	obj := new(Object)
+	obj.path = path
+	obj.dest = dest
+	obj.intro = p._GetIntrospect(dest, path)
+
+	return obj
 }

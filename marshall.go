@@ -57,7 +57,7 @@ func _AppendArray(buff *bytes.Buffer, align int, proc func(b *bytes.Buffer)) {
 	_AppendAlign(4, buff)
 	_AppendAlign(align, buff)
 	b := bytes.NewBuffer(buff.Bytes())
-	b.Write(strings.Bytes("ABCD")) // dummy for array-size.
+	b.Write(strings.Bytes("ABCD")) // "ABCD" will be replaced with array-size.
 	pos1 := b.Len()
 	proc(b)
 	pos2 := b.Len()
@@ -70,10 +70,13 @@ func _AppendValue(buff *bytes.Buffer, sig string, val interface{}) (sigOffset in
 		return 0, os.NewError("Invalid Signature")
 	}
 
-	fmt.Println("append value:", sig)
 	e = nil
 
 	switch sig[0] {
+	case 'y': // byte
+		_AppendByte(buff, val.(byte))
+		sigOffset =1
+
 	case 's': // string
 		_AppendString(buff, val.(string))
 		sigOffset = 1
@@ -120,9 +123,7 @@ func _AppendValue(buff *bytes.Buffer, sig string, val interface{}) (sigOffset in
 func _AppendParamsData(buff *bytes.Buffer, sig string, params *vector.Vector) {
 	sigOffset := 0
 	prmsOffset := 0
-	fmt.Println(len(params.Data()))
 	for ; sigOffset < len(sig); prmsOffset++ {
-		fmt.Println("sigoffset , prmsoffset,", sigOffset, prmsOffset)
 		offset, _ := _AppendValue(buff, sig[sigOffset:len(sig)], params.At(prmsOffset))
 		sigOffset += offset
 	}
@@ -133,6 +134,30 @@ func _GetByte(buff []byte, index int) (byte, os.Error) {
 		return 0, os.NewError("index error")
 	}
 	return buff[index], nil
+}
+
+func _GetInt16(buff []byte, index int) (int16, os.Error) {
+	if len(buff) <= index+2-1 {
+		return 0, os.NewError("index error")
+	}
+	var n int16
+	e := binary.Read(bytes.NewBuffer(buff[index:len(buff)]), binary.LittleEndian, &n)
+	if e != nil {
+		return 0, e
+	}
+	return n, nil
+}
+
+func _GetUint16(buff []byte, index int) (uint16, os.Error) {
+	if len(buff) <= index+2-1 {
+		return 0, os.NewError("index error")
+	}
+	var q uint16
+	e := binary.Read(bytes.NewBuffer(buff[index:len(buff)]), binary.LittleEndian, &q)
+	if e != nil {
+		return 0, e
+	}
+	return q, nil
 }
 
 func _GetInt32(buff []byte, index int) (int32, os.Error) {
@@ -249,6 +274,7 @@ func _GetVariant(buff []byte, index int) (valvec *vector.Vector, retidx int, e o
 	return
 }
 
+
 func Parse(buff []byte, sig string, index int) (vec *vector.Vector, bufIdx int, err os.Error) {
 	vec = new(vector.Vector)
 	bufIdx = index
@@ -273,6 +299,43 @@ func Parse(buff []byte, sig string, index int) (vec *vector.Vector, bufIdx int, 
 			}
 			vec.Push(v)
 			bufIdx++
+			sigIdx++
+
+		case 'n': // int16
+			bufIdx = _Align(2, bufIdx)
+			n, e := _GetInt16(buff, bufIdx)
+			if e != nil {
+				err = e
+				return
+			}
+
+			vec.Push(n)
+			bufIdx += 2
+			sigIdx++
+
+		case 'q': // uint16
+			bufIdx = _Align(2, bufIdx)
+			q, e := _GetUint16(buff, bufIdx)
+			if e != nil {
+				err = e
+				return
+			}
+
+			vec.Push(q)
+			bufIdx += 2
+			sigIdx++
+
+		case 'u': // uint32
+			bufIdx = _Align(4, bufIdx)
+
+			u, e := _GetUint32(buff, bufIdx)
+			if e != nil {
+				err = e
+				return
+			}
+
+			vec.Push(u)
+			bufIdx += 4
 			sigIdx++
 
 		case 's', 'o': // string, object
@@ -308,19 +371,6 @@ func Parse(buff []byte, sig string, index int) (vec *vector.Vector, bufIdx int, 
 			}
 			vec.Push(str)
 			bufIdx += (1 + int(size) + 1)
-			sigIdx++
-
-		case 'u': // uint32
-			bufIdx = _Align(4, bufIdx)
-
-			u, e := _GetUint32(buff, bufIdx)
-			if e != nil {
-				err = e
-				return
-			}
-
-			vec.Push(u)
-			bufIdx += 4
 			sigIdx++
 
 		case 'a': // array
