@@ -2,18 +2,11 @@
 package dbus
 
 import (
-	"container/vector";
 	"testing";
-//	"os";
-//	"fmt";
 )
 
 func TestDbus(t *testing.T){
-}
-
-func TestConnectionInitialize(t *testing.T){
-
-//	con := Connection{path: os.Getenv("DBUS_SESSION_BUS_ADDRESS")}
+/*
 	con,_ := NewSessionBus()
 	e := con.Initialize()
 
@@ -24,6 +17,6 @@ func TestConnectionInitialize(t *testing.T){
 	inf := con.Interface(obj,"org.freedesktop.Notifications")
 	if inf == nil { t.Error("Failed #3")}
 
-	con.CallMethod(*inf, "Notify", "dbus.go", uint32(0), "info", "test", "test_body", (*vector.Vector)(nil), (*vector.Vector)(nil), int32(2000))
-	
+	con.CallMethod(*inf, "Notify", "dbus.go", uint32(0), "info", "test", "test_body", []string{}, map[uint32] interface{}{}, int32(2000))
+	*/
 }

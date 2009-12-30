@@ -160,7 +160,7 @@ func (p *Connection) _SendHello() os.Error {
 	msg.Intf = "org.freedesktop.DBus"
 	msg.Dest = "org.freedesktop.DBus"
 	msg.Member = "Hello"
-	p._SendSync(msg, func(reply *Message) { fmt.Println("send hello success") })
+	p._SendSync(msg, func(reply *Message) {})
 	return nil
 }
 
@@ -205,11 +205,11 @@ func (p *Connection) Interface(obj *Object, name string) *Interface {
 	return intf
 }
 
-func (p *Connection) CallMethod(intf Interface, name string, args ...) os.Error {
+func (p *Connection) CallMethod(intf Interface, name string, args ...) ([]interface{}, os.Error) {
 
 	method := intf.intro.GetMethodData(name)
 	if nil == method {
-		return os.NewError("Invalid Method")
+		return nil, os.NewError("Invalid Method")
 	}
 
 	msg := NewMessage()
@@ -229,9 +229,10 @@ func (p *Connection) CallMethod(intf Interface, name string, args ...) os.Error 
 	msg.Member = name
 	msg.Sig = method.GetInSignature()
 
-	p._SendSync(msg, func(reply *Message) { fmt.Println("Method Call Comp:", name) })
+	var ret []interface{}
+	p._SendSync(msg, func(reply *Message) { ret = reply.Params.Data()})
 
-	return nil
+	return ret,nil
 }
 
 func(p *Connection) GetObject(dest string, path string) *Object{
