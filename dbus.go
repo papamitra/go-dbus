@@ -5,18 +5,105 @@ import (
 	"regexp"
 	"os"
 	"fmt"
+	"container/vector"
 //	"strings"
 	"bytes"
 	"reflect"
 )
+
+const dbusXMLIntro = `
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="org.freedesktop.DBus.Introspectable">
+    <method name="Introspect">
+      <arg name="data" direction="out" type="s"/>
+    </method>
+  </interface>
+  <interface name="org.freedesktop.DBus">
+    <method name="RequestName">
+      <arg direction="in" type="s"/>
+      <arg direction="in" type="u"/>
+      <arg direction="out" type="u"/>
+    </method>
+    <method name="ReleaseName">
+      <arg direction="in" type="s"/>
+      <arg direction="out" type="u"/>
+    </method>
+    <method name="StartServiceByName">
+      <arg direction="in" type="s"/>
+      <arg direction="in" type="u"/>
+      <arg direction="out" type="u"/>
+    </method>
+    <method name="Hello">
+      <arg direction="out" type="s"/>
+    </method>
+    <method name="NameHasOwner">
+      <arg direction="in" type="s"/>
+      <arg direction="out" type="b"/>
+    </method>
+    <method name="ListNames">
+      <arg direction="out" type="as"/>
+    </method>
+    <method name="ListActivatableNames">
+      <arg direction="out" type="as"/>
+    </method>
+    <method name="AddMatch">
+      <arg direction="in" type="s"/>
+    </method>
+    <method name="RemoveMatch">
+      <arg direction="in" type="s"/>
+    </method>
+    <method name="GetNameOwner">
+      <arg direction="in" type="s"/>
+      <arg direction="out" type="s"/>
+    </method>
+    <method name="ListQueuedOwners">
+      <arg direction="in" type="s"/>
+      <arg direction="out" type="as"/>
+    </method>
+    <method name="GetConnectionUnixUser">
+      <arg direction="in" type="s"/>
+      <arg direction="out" type="u"/>
+    </method>
+    <method name="GetConnectionUnixProcessID">
+      <arg direction="in" type="s"/>
+      <arg direction="out" type="u"/>
+    </method>
+    <method name="GetConnectionSELinuxSecurityContext">
+      <arg direction="in" type="s"/>
+      <arg direction="out" type="ay"/>
+    </method>
+    <method name="ReloadConfig">
+    </method>
+    <signal name="NameOwnerChanged">
+      <arg type="s"/>
+      <arg type="s"/>
+      <arg type="s"/>
+    </signal>
+    <signal name="NameLost">
+      <arg type="s"/>
+    </signal>
+    <signal name="NameAcquired">
+      <arg type="s"/>
+    </signal>
+  </interface>
+</node>`
+
+type signalHandler struct{
+	mr MatchRule
+	proc func(*Message)
+}
 
 type Connection struct {
 	path              string
 	uniqName          string
 	guid              string
 	methodCallReplies map[uint32](func(msg *Message))
+	signalMatchRules  *vector.Vector
 	conn              net.Conn
 	buffer            *bytes.Buffer
+	proxy             *Interface
 }
 
 type Object struct {
@@ -68,6 +155,8 @@ func NewSystemBus() (*Connection, os.Error){
 
 func (p *Connection) Initialize() os.Error {
 	p.methodCallReplies = make(map[uint32]func(*Message))
+	p.signalMatchRules = new(vector.Vector)
+	p.proxy = p._GetProxy()
 	p.buffer = bytes.NewBuffer([]byte{})
 	p._Auth()
 	go p._RunLoop()
@@ -116,6 +205,13 @@ func (p *Connection) _MessageDispatch(msg *Message) {
 			replyFunc(msg)
 			p.methodCallReplies[rs] = nil, false
 		}
+  case SIGNAL:
+		for v := range p.signalMatchRules.Iter() {
+			handler := v.(signalHandler)
+			if handler.mr._Match(msg) {
+				handler.proc(msg)
+			}
+		}
 	case ERROR:
 		fmt.Println("ERROR")
 		fmt.Printf("%#v\n", msg)
@@ -154,13 +250,7 @@ func (p *Connection) _SendSync(msg *Message, callback func(*Message)) os.Error {
 }
 
 func (p *Connection) _SendHello() os.Error {
-	msg := NewMessage()
-	msg.Type = METHOD_CALL
-	msg.Path = "/org/freedesktop/DBus"
-	msg.Intf = "org.freedesktop.DBus"
-	msg.Dest = "org.freedesktop.DBus"
-	msg.Member = "Hello"
-	p._SendSync(msg, func(reply *Message) {})
+	p.CallMethod(p.proxy, "Hello")
 	return nil
 }
 
@@ -169,7 +259,7 @@ func (p *Connection) _GetIntrospect(dest string, path string) Introspect {
 	msg.Type = METHOD_CALL
 	msg.Path = path
 	msg.Dest = dest
-	msg.Intf = "org.freedesktop.DBus.Introspectable"
+	msg.Iface = "org.freedesktop.DBus.Introspectable"
 	msg.Member = "Introspect"
 
 	var intro Introspect
@@ -191,48 +281,93 @@ func (p *Connection) Interface(obj *Object, name string) *Interface {
 		return nil
 	}
 
-	intf := new(Interface)
-	intf.obj = obj
-	intf.name = name
+	iface := new(Interface)
+	iface.obj = obj
+	iface.name = name
 
 	data := obj.intro.GetInterfaceData(name)
 	if nil == data {
 		return nil
 	}
 
-	intf.intro = data
+	iface.intro = data
 
-	return intf
+	return iface
 }
 
-func (p *Connection) CallMethod(intf Interface, name string, args ...) ([]interface{}, os.Error) {
+func _ArgToVector(args ...) *vector.Vector {
+	vec := new(vector.Vector)
+	v := reflect.NewValue(args).(*reflect.StructValue)
+	for i := 0; i < v.NumField(); i++ {
+		val := v.Field(i)
+		if vi := val.Interface(); vi != nil {
+			vec.Push(vi)
+		}
+	}
+	
+	return vec
+}
 
-	method := intf.intro.GetMethodData(name)
+func (p *Connection) _GetProxy() *Interface {
+	obj := new(Object)
+	obj.path = "/org/freedesktop/DBus"
+	obj.dest = "org.freedesktop.DBus"
+	obj.intro,_ = NewIntrospect(dbusXMLIntro)
+
+	iface := new(Interface)
+	iface.obj = obj
+	iface.name = "org.freedesktop.DBus"
+	iface.intro = obj.intro.GetInterfaceData("org.freedesktop.DBus")
+
+	return iface
+}
+
+func (p *Connection) CallMethod(iface *Interface, name string, args ...) ([]interface{}, os.Error) {
+
+	method := iface.intro.GetMethodData(name)
 	if nil == method {
 		return nil, os.NewError("Invalid Method")
 	}
 
 	msg := NewMessage()
 
-	v := reflect.NewValue(args).(*reflect.StructValue)
-	for i := 0; i < v.NumField(); i++ {
-		val := v.Field(i)
-		if inter := val.Interface(); inter != nil {
-			msg.Params.Push(inter)
-		}
-	}
-
 	msg.Type = METHOD_CALL
-	msg.Path = intf.obj.path
-	msg.Intf = intf.name
-	msg.Dest = intf.obj.dest
+	msg.Path = iface.obj.path
+	msg.Iface = iface.name
+	msg.Dest = iface.obj.dest
 	msg.Member = name
 	msg.Sig = method.GetInSignature()
+	msg.Params.AppendVector(_ArgToVector(args))
 
 	var ret []interface{}
-	p._SendSync(msg, func(reply *Message) { ret = reply.Params.Data()})
+	p._SendSync(msg, func(reply *Message) { 
+		fmt.Println("CallMethodRet: " , reply.Params.Data())
+		ret = reply.Params.Data()})
 
 	return ret,nil
+}
+
+func (p *Connection) EmitSignal(iface *Interface, name string, args ...) os.Error{
+
+	signal := iface.intro.GetSignalData(name)
+	if nil == signal {
+		return os.NewError("Invalid Signalx")
+	}
+
+	msg := NewMessage()
+
+	msg.Type = SIGNAL
+	msg.Path = iface.obj.path
+	msg.Iface = iface.name
+	msg.Dest = iface.obj.dest
+	msg.Member = name
+	msg.Sig = signal.GetSignature()
+	msg.Params.AppendVector(_ArgToVector(args))
+
+	buff, _ := msg._Marshal()
+	_,err := p.conn.Write(buff)
+
+	return err
 }
 
 func(p *Connection) GetObject(dest string, path string) *Object{
@@ -243,4 +378,9 @@ func(p *Connection) GetObject(dest string, path string) *Object{
 	obj.intro = p._GetIntrospect(dest, path)
 
 	return obj
+}
+
+func(p *Connection) AddSignalHandler(mr *MatchRule, proc func(*Message)) {
+	p.signalMatchRules.Push(signalHandler{*mr, proc})
+	p.CallMethod(p.proxy, "AddMatch", mr._ToString())
 }

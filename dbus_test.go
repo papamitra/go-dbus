@@ -2,11 +2,11 @@
 package dbus
 
 import (
-	"testing";
+	"testing"
+	"fmt"
 )
 
 func TestDbus(t *testing.T){
-/*
 	con,_ := NewSessionBus()
 	e := con.Initialize()
 
@@ -17,6 +17,8 @@ func TestDbus(t *testing.T){
 	inf := con.Interface(obj,"org.freedesktop.Notifications")
 	if inf == nil { t.Error("Failed #3")}
 
-	con.CallMethod(*inf, "Notify", "dbus.go", uint32(0), "info", "test", "test_body", []string{}, map[uint32] interface{}{}, int32(2000))
-	*/
+	ret,_ := con.CallMethod(inf, "Notify", "dbus.go", uint32(0), "info", "test", "test_body", []string{}, map[uint32] interface{}{}, int32(2000))
+	fmt.Println(ret)
+
+	
 }

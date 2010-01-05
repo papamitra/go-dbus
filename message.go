@@ -5,7 +5,7 @@ import (
 	"os"
 	"bytes"
 	"sync"
-	//	"fmt";
+	//"fmt";
 )
 
 type MessageType int
@@ -32,7 +32,7 @@ type Message struct {
 	bodyLength  int
 	Path        string
 	Dest        string
-	Intf        string
+	Iface        string
 	Member      string
 	Sig         string
 	Params      *vector.Vector
@@ -86,7 +86,7 @@ func (p *Message) _BufferToMessage(buff []byte) (int, os.Error) {
 		case 1:
 			p.Path = val.(string)
 		case 2:
-			p.Intf = val.(string)
+			p.Iface = val.(string)
 		case 3:
 			p.Member = val.(string)
 		case 4:
@@ -104,13 +104,13 @@ func (p *Message) _BufferToMessage(buff []byte) (int, os.Error) {
 	idx := _Align(8, bufIdx)
 	if 0 < p.bodyLength {
 		vec, idx, _ = Parse(buff, p.Sig, idx)
-		p.Params = vec
+		p.Params.AppendVector(vec)
 	}
 	return idx, nil
 }
 
 func _Unmarshal(buff []byte) (*Message, int, os.Error) {
-	msg := new(Message)
+	msg := NewMessage()
 	idx, e := msg._BufferToMessage(buff)
 	if e != nil {
 		return nil, 0, e
@@ -141,13 +141,13 @@ func (p *Message) _Marshal() ([]byte, os.Error) {
 				_AppendString(b, p.Path)
 			}
 
-			if p.Intf != "" {
+			if p.Iface != "" {
 				_AppendAlign(8, b)
 				_AppendByte(b, 2) // interface
 				_AppendByte(b, 1) // signature size
 				_AppendByte(b, 's')
 				_AppendByte(b, 0)
-				_AppendString(b, p.Intf)
+				_AppendString(b, p.Iface)
 			}
 
 			if p.Member != "" {

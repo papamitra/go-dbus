@@ -23,8 +23,8 @@ func TestUnmarshal(t *testing.T) {
 	if "org.freedesktop.DBus" != msg.Dest {
 		t.Error("#3 Failed :", msg.Dest)
 	}
-	if "org.freedesktop.DBus" != msg.Intf {
-		t.Error("#4 Failed :", msg.Intf)
+	if "org.freedesktop.DBus" != msg.Iface {
+		t.Error("#4 Failed :", msg.Iface)
 	}
 	if "Hello" != msg.Member {
 		t.Error("#5 Failed :", msg.Member)
@@ -39,7 +39,7 @@ func TestMarshal(t *testing.T) {
 	msg.Flags = MessageFlag(0)
 	msg.Path = "/org/freedesktop/DBus"
 	msg.Dest = "org.freedesktop.DBus"
-	msg.Intf = "org.freedesktop.DBus"
+	msg.Iface = "org.freedesktop.DBus"
 	msg.Member = "Hello"
 	msg.serial = 1
 
